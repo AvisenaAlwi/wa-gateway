@@ -8,6 +8,7 @@ const path = require("path");
 const MainRouter = require("./app/routers");
 const errorHandlerMiddleware = require("./app/middlewares/error_middleware");
 const whatsapp = require("wa-multi-session");
+const axios = require('axios');
 
 config();
 
@@ -32,17 +33,49 @@ var server = http.createServer(app);
 server.on("listening", () => console.log("APP IS RUNNING ON PORT " + PORT));
 
 server.listen(PORT);
+process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
 
-whatsapp.onConnected((session) => {
+const sendWebhook = async (session, status, data = null) => {
+  var payload = { 
+    event: 'connection',
+    session: session,
+    status: status,
+  };
+
+  if (data != null)
+    payload.data = data;
+
+  await axios.post(process.env[ session + "_WEBHOOK_URL"], payload, {
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept'      : 'application/json',
+    }
+  }).then((res) => {
+    if (res.status == 200)
+      console.log("WEBHOOK SENT SUCCESSFULLY");
+  }).catch((err) => {
+    console.error("WEBHOOK SENT UNSUCCESSFULLY");
+    console.error(err)
+  })
+}
+
+whatsapp.onConnected(async (session) => {
   console.log("connected => ", session);
+  const dataSession = await whatsapp.getSession(session);
+  sendWebhook(session, 'connected', {
+    phone: dataSession.user.id, 
+    name: dataSession?.authState?.creds?.me?.name,
+  });
 });
 
 whatsapp.onDisconnected((session) => {
   console.log("disconnected => ", session);
+  sendWebhook(session, 'disconnected');
 });
 
 whatsapp.onConnecting((session) => {
   console.log("connecting => ", session);
+  sendWebhook(session, 'connecting');
 });
 
 whatsapp.loadSessionsFromStorage();
